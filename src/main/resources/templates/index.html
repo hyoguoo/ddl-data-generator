@@ -1,0 +1,524 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>DDL + Schema + Bulk Insert UI</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <style>
+    body { font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, "Noto Sans KR", Arial; margin: 20px; }
+    h2 { margin-top: 28px; }
+    fieldset { margin: 16px 0; padding: 12px; }
+    label { display: inline-block; min-width: 140px; }
+    input[type="text"], input[type="number"], select, textarea { padding: 6px; width: 100%; max-width: 640px; }
+    table { border-collapse: collapse; margin-top: 8px; width: 100%; }
+    th, td { border: 1px solid #ddd; padding: 6px 8px; font-size: 14px; }
+    th { background: #f5f5f5; }
+    .row { display: flex; gap: 16px; flex-wrap: wrap; }
+    .col { flex: 1 1 360px; }
+    .muted { color: #666; font-size: 12px; }
+    .btn { padding: 8px 14px; border: 1px solid #333; background: #111; color: #fff; cursor: pointer; border-radius: 6px; }
+    .btn.secondary { background: #fff; color: #111; }
+    .ok { color: #0a7a0a; }
+    .err { color: #a61616; white-space: pre-wrap; }
+    .grid { display: grid; grid-template-columns: 220px 1fr; gap: 8px 12px; align-items: center; }
+    .kvs { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+    .inline { display: inline-flex; gap: 8px; align-items: center; }
+    .chip { display:inline-block; padding:2px 6px; border-radius:12px; background:#eff3ff; border:1px solid #d6defa; font-size:12px; }
+  </style>
+</head>
+<body>
+
+<h1>DDL, Schema, and Bulk Insert</h1>
+<h2>1) Execute DDL</h2>
+<fieldset>
+  <div class="grid">
+    <label for="ddl">SQL (separate multiple statements with semicolons)</label>
+    <textarea id="ddl" rows="4" placeholder="CREATE TABLE post (...); ALTER TABLE post ADD COLUMN ...;"></textarea>
+    <div></div>
+    <div class="inline">
+      <button class="btn" id="btnExecDdl">Execute DDL</button>
+      <span id="ddlResult" class="muted"></span>
+    </div>
+  </div>
+</fieldset>
+<h2>2) Schema &amp; Table Selection</h2>
+<fieldset>
+  <div class="grid">
+    <label>Tables</label>
+    <div class="inline">
+      <select id="tableSelect" style="min-width:300px;"></select>
+      <button class="btn secondary" id="btnReloadTables">Refresh</button>
+    </div>
+    <label>Selected table columns</label>
+    <div>
+      <table id="columnsTable">
+        <thead>
+        <tr>
+          <th>name</th>
+          <th>type</th>
+          <th>size</th>
+          <th>nullable</th>
+          <th>pk</th>
+          <th>autoIncrement</th>
+          <th>default</th>
+        </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+      <div class="muted">Column metadata is fetched via JDBC DatabaseMetaData.</div>
+    </div>
+  </div>
+</fieldset>
+<h2>3) Bulk Data Insertion</h2>
+<fieldset>
+  <div class="grid">
+    <label>Target table</label>
+    <input id="insTable" type="text" placeholder="e.g., post (auto filled from the selection above)"/>
+    <label>Rows to insert</label>
+    <input id="rowCount" type="number" value="100000" min="1"/>
+
+    <label>Batch size</label>
+    <input id="batchSize" type="number" value="5000" min="1"/>
+
+    <label>Concurrency</label>
+    <input id="concurrency" type="number" value="1" min="1"/>
+
+    <label>DB / Strategy</label>
+    <div class="inline">
+      <select id="dialect">
+        <option value="MYSQL" selected>MYSQL</option>
+      </select>
+      <select id="strategy">
+        <option value="BATCH" selected>BATCH</option>
+      </select>
+    </div>
+
+    <label>Column presets</label>
+    <div class="inline">
+      <button class="btn secondary" id="btnAutoMap">Apply auto mapping</button>
+      <span class="muted">Map generators based on column name/type (name/email/lorem/int/decimal/datetime/const/AUTO).</span>
+    </div>
+    <label>Per-column generator rules</label>
+    <div id="generators"></div>
+
+    <div></div>
+    <div class="inline">
+      <button class="btn" id="btnInsert">Run bulk insert</button>
+      <span id="insertResult" class="muted"></span>
+    </div>
+  </div>
+</fieldset>
+<script>
+  // ----- Util -----
+  const $ = (id) => document.getElementById(id);
+  const columnsCache = new Map(); // table -> columns[]
+
+  function fmtBool(v) { return v ? 'Y' : 'N'; }
+
+  function qs(obj) {
+    return Object.entries(obj).map(([k,v]) => encodeURIComponent(k)+'='+encodeURIComponent(v)).join('&');
+  }
+
+  function el(tag, attrs = {}, children = []) {
+    const e = document.createElement(tag);
+    Object.entries(attrs).forEach(([k,v]) => {
+      if (k === 'class') e.className = v;
+      else if (k === 'html') e.innerHTML = v;
+      else e.setAttribute(k, v);
+    });
+    (Array.isArray(children) ? children : [children]).forEach(c => {
+      if (c == null) return;
+      if (typeof c === 'string') e.appendChild(document.createTextNode(c));
+      else e.appendChild(c);
+    });
+    return e;
+  }
+
+  // ----- 1) DDL Execution -----
+  $('btnExecDdl').addEventListener('click', async () => {
+    const sql = $('ddl').value.trim();
+    $('ddlResult').textContent = '';
+    if (!sql) {
+      $('ddlResult').textContent = 'SQL is empty.';
+      return;
+    }
+    try {
+      const res = await fetch('/ddl/execute', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ sql })
+      });
+      const data = await res.json();
+      if (data.ok) {
+        $('ddlResult').textContent = `OK · executedStatements=${data.executedStatements}`;
+        $('ddlResult').className = 'ok';
+        await loadTables(); // refresh schema
+      } else {
+        $('ddlResult').textContent = 'Failed';
+        $('ddlResult').className = 'err';
+      }
+    } catch (e) {
+      $('ddlResult').textContent = String(e);
+      $('ddlResult').className = 'err';
+    }
+  });
+
+  // ----- 2) Schema/Table List & Column Metadata -----
+  async function loadTables() {
+    $('tableSelect').innerHTML = '';
+    const res = await fetch('/schema/tables');
+    const tables = await res.json();
+    tables.forEach(t => {
+      const opt = el('option', { value: t }, t);
+      $('tableSelect').appendChild(opt);
+    });
+    if (tables.length > 0) {
+      $('tableSelect').value = tables[0];
+      await onSelectTable();
+    }
+  }
+
+  async function onSelectTable() {
+    const t = $('tableSelect').value;
+    $('insTable').value = t;
+    if (!t) return;
+    if (!columnsCache.has(t)) {
+      const res = await fetch('/schema/' + encodeURIComponent(t));
+      const cols = await res.json();
+      columnsCache.set(t, cols);
+    }
+    renderColumns(t);
+    renderGenerators(t);
+  }
+
+  function renderColumns(table) {
+    const tbody = $('columnsTable').querySelector('tbody');
+    tbody.innerHTML = '';
+    const cols = columnsCache.get(table) || [];
+    cols.forEach(c => {
+      const tr = el('tr', {}, [
+        el('td', {}, c.name),
+        el('td', {}, c.typeName + (c.jdbcType ? ` (${c.jdbcType})` : '')),
+        el('td', {}, String(c.size ?? '')),
+        el('td', {}, fmtBool(c.nullable)),
+        el('td', {}, fmtBool(c.primaryKey)),
+        el('td', {}, fmtBool(c.autoIncrement)),
+        el('td', {}, c.defaultValue ?? '')
+      ]);
+      tbody.appendChild(tr);
+    });
+  }
+
+  // ----- 3) Column-specific Generator UI -----
+  const GEN_TYPES = [
+    { key: 'AUTO', label: 'AUTO (auto-increment/DB default - omitted)' },
+    { key: 'const', label: 'const (constant)' },
+    { key: 'name', label: 'name (person)' },
+    { key: 'email', label: 'email (optional domain)' },
+    { key: 'lorem', label: 'lorem (sentence)' },
+    { key: 'int', label: 'int (range)' },
+    { key: 'decimal', label: 'decimal (range + scale)' },
+    { key: 'datetime', label: 'datetime (random within period)' },
+    { key: 'pick', label: 'pick (list + weights)' }
+  ];
+
+    // ---- Auto-guessing generator type based on column metadata ----
+    function guessGenerator(col) {
+      const name = (col.name || '').toLowerCase();
+      const type = (col.typeName || '').toLowerCase();
+      const size = Number(col.size || 0);
+
+      if (col.autoIncrement || col.primaryKey) return 'AUTO';
+
+      // boolean-ish flags
+      if (type.includes('bool') || (type.startsWith('char') && size === 1) || /(is_|_yn$|flag$)/.test(name)) {
+        if (/deleted|active|enabled/.test(name)) return 'const'; // default value 'N' is applied below
+      }
+
+      // e-mail
+      if (name.includes('email') || type.includes('email')) return 'email';
+
+      // person name
+      if (name === 'name' || /(^|_)(user|author|writer)_?name$/.test(name) || name.endsWith('name')) return 'name';
+
+      // text-like
+      if (/(text|clob)/.test(type)) return 'lorem';
+      if (type.startsWith('varchar') || type.includes('char')) {
+        if (/(title|subject|content|body|desc|message|summary)/.test(name)) return 'lorem';
+        if (size >= 100) return 'lorem';
+      }
+
+      // numeric
+      if (/(decimal|numeric)/.test(type)) return 'decimal';
+      if (/(bigint|int|tinyint|smallint|mediumint)/.test(type)) return 'int';
+
+      // datetime/date/timestamp
+      if (/(timestamp|datetime|date)/.test(type)) return 'datetime';
+
+      // fallback
+      return 'lorem';
+    }
+
+    function applyDefaultArgs(col, genType) {
+      const id = (suffix) => `v-${col.name}-${suffix}`;
+      // Clear previous args UI
+      const select = document.querySelector(`select[data-col="${col.name}"]`);
+      if (!select) return;
+      // Trigger UI build
+      select.value = genType;
+      onGenChange({ target: select });
+
+      // Fill sensible defaults
+      if (genType === 'const') {
+        const elv = document.getElementById(id('value'));
+        if (elv && elv.value === '') {
+          if (/deleted|active|enabled/.test((col.name||'').toLowerCase())) elv.value = 'N';
+        }
+      }
+      if (genType === 'lorem') {
+        const w = document.getElementById(id('words'));
+        const m = document.getElementById(id('maxLen'));
+        if (w && !w.value) w.value = 8;
+        if (m && !m.value) m.value = Math.min(col.size || 255, 255);
+      }
+      if (genType === 'int') {
+        const min = document.getElementById(id('min'));
+        const max = document.getElementById(id('max'));
+        if (min && !min.value) min.value = 0;
+        if (max && !max.value) max.value = 100000;
+      }
+      if (genType === 'decimal') {
+        const min = document.getElementById(id('min'));
+        const max = document.getElementById(id('max'));
+        const scale = document.getElementById(id('scale'));
+        if (min && !min.value) min.value = 0;
+        if (max && !max.value) max.value = 100000;
+        if (scale && !scale.value) scale.value = 2;
+      }
+      if (genType === 'datetime') {
+        const from = document.getElementById(id('from'));
+        const to = document.getElementById(id('to'));
+        if (from && !from.value) from.value = '2020-01-01';
+        if (to && !to.value) to.value = 'now';
+      }
+      if (genType === 'email') {
+        const dm = document.getElementById(id('domain'));
+        if (dm && !dm.value) dm.value = 'example.com';
+      }
+    }
+
+    function autoMapGenerators(table) {
+      const cols = (columnsCache.get(table) || []);
+      cols.forEach(col => {
+        const guessed = guessGenerator(col);
+        applyDefaultArgs(col, guessed);
+      });
+    }
+
+  function renderGenerators(table) {
+    const wrap = $('generators');
+    wrap.innerHTML = '';
+    const cols = (columnsCache.get(table) || []);
+
+    cols.forEach(col => {
+      const row = el('div', { class: 'row' }, [
+        el('div', { class: 'col' }, [
+          el('div', { class: 'chip' }, col.name),
+          el('div', { class: 'muted' }, `${col.typeName}${col.primaryKey ? ' · PK' : ''}${col.autoIncrement ? ' · AUTO' : ''}`)
+        ]),
+        el('div', { class: 'col' }, [
+          genSelector(col),
+          genArgs(col)
+        ])
+      ]);
+      wrap.appendChild(row);
+    });
+
+    autoMapGenerators(table);
+  }
+
+  function genSelector(col) {
+    const select = el('select', { 'data-col': col.name });
+    GEN_TYPES.forEach(g => {
+      const opt = el('option', { value: g.key }, g.label);
+      // default selection: if AUTO_INCREMENT then AUTO; otherwise use simple type-based guess
+      if (col.autoIncrement && g.key === 'AUTO') opt.selected = true;
+      select.appendChild(opt);
+    });
+    select.addEventListener('change', onGenChange);
+    return select;
+  }
+
+  function genArgs(col) {
+    // per-column settings container
+    const box = el('div', { id: `args-${col.name}` });
+    // initially empty; populated when selection changes
+    return box;
+  }
+
+  function onGenChange(e) {
+    const select = e.target;
+    const col = select.getAttribute('data-col');
+    const type = select.value;
+    const box = $(`args-${col}`);
+    box.innerHTML = '';
+
+    if (type === 'AUTO') {
+      box.appendChild(el('div', { class: 'muted' }, 'This column will be omitted from INSERT.'));
+      return;
+    }
+
+    if (type === 'const') {
+      box.appendChild(el('input', { type: 'text', placeholder: 'value', id: `v-${col}-value` }));
+      return;
+    }
+
+    if (type === 'name') return;
+
+    if (type === 'email') {
+      box.appendChild(el('input', { type: 'text', placeholder: 'domain (e.g., example.com)', id: `v-${col}-domain` }));
+      return;
+    }
+
+    if (type === 'lorem') {
+      box.appendChild(el('div', { class: 'kvs' }, [
+        el('input', { type: 'number', placeholder: 'words (default 8)', id: `v-${col}-words` }),
+        el('input', { type: 'number', placeholder: 'maxLen (default 255)', id: `v-${col}-maxLen` })
+      ]));
+      return;
+    }
+
+    if (type === 'int') {
+      box.appendChild(el('div', { class: 'kvs' }, [
+        el('input', { type: 'number', placeholder: 'min', id: `v-${col}-min` }),
+        el('input', { type: 'number', placeholder: 'max', id: `v-${col}-max` })
+      ]));
+      return;
+    }
+
+    if (type === 'decimal') {
+      box.appendChild(el('div', { class: 'kvs' }, [
+        el('input', { type: 'number', placeholder: 'min (integer part)', id: `v-${col}-min` }),
+        el('input', { type: 'number', placeholder: 'max (integer part)', id: `v-${col}-max` }),
+        el('input', { type: 'number', placeholder: 'scale (default 2)', id: `v-${col}-scale` })
+      ]));
+      return;
+    }
+
+    if (type === 'datetime') {
+      box.appendChild(el('div', { class: 'kvs' }, [
+        el('input', { type: 'text', placeholder: 'from (YYYY-MM-DD)', id: `v-${col}-from` }),
+        el('input', { type: 'text', placeholder: 'to (YYYY-MM-DD or now)', id: `v-${col}-to` })
+      ]));
+      return;
+    }
+
+    if (type === 'pick') {
+      box.appendChild(el('div', {}, [
+        el('input', { type: 'text', placeholder: 'values (e.g., A,B,C or 1,2,3)', id: `v-${col}-values` }),
+        el('input', { type: 'text', placeholder: 'weights (e.g., 1,7,2) - optional', id: `v-${col}-weights` }),
+        el('div', { class: 'muted' }, 'Match counts for values/weights; if omitted, equal probabilities.')
+      ]));
+      return;
+    }
+  }
+
+  // ----- 4) Run bulk insert -----
+  $('btnInsert').addEventListener('click', async () => {
+    const table = $('insTable').value.trim() || $('tableSelect').value;
+    const rowCount = parseInt($('rowCount').value || '0', 10);
+    const batchSize = parseInt($('batchSize').value || '0', 10);
+    const concurrency = parseInt($('concurrency').value || '0', 10);
+    const dialect = $('dialect').value;
+    const strategy = $('strategy').value;
+
+    $('insertResult').textContent = '';
+    $('insertResult').className = 'muted';
+
+    if (!table) { $('insertResult').textContent = 'Please provide a table name.'; return; }
+    if (rowCount <= 0) { $('insertResult').textContent = 'rowCount must be ≥ 1.'; return; }
+
+    // build spec payload
+    const cols = columnsCache.get($('tableSelect').value) || [];
+    const spec = {};
+    for (const col of cols) {
+      const type = document.querySelector(`select[data-col="${col.name}"]`).value;
+      const args = {};
+      if (type === 'AUTO') { spec[col.name] = { gen: 'AUTO' }; continue; }
+      if (type === 'const') { args.value = $('v-' + col.name + '-value')?.value ?? ''; }
+      if (type === 'email') { const d = $('v-' + col.name + '-domain')?.value; if (d) args.domain = d; }
+      if (type === 'lorem') {
+        const w = parseInt($('v-' + col.name + '-words')?.value || '0', 10);
+        const m = parseInt($('v-' + col.name + '-maxLen')?.value || '0', 10);
+        if (w > 0) args.words = w;
+        if (m > 0) args.maxLen = m;
+      }
+      if (type === 'int' || type === 'decimal') {
+        const min = $('v-' + col.name + '-min')?.value;
+        const max = $('v-' + col.name + '-max')?.value;
+        if (min !== '' && min != null) args.min = Number(min);
+        if (max !== '' && max != null) args.max = Number(max);
+        if (type === 'decimal') {
+          const s = $('v-' + col.name + '-scale')?.value;
+          if (s !== '' && s != null) args.scale = Number(s);
+        }
+      }
+      if (type === 'datetime') {
+        const from = $('v-' + col.name + '-from')?.value?.trim();
+        const to = $('v-' + col.name + '-to')?.value?.trim();
+        if (from) args.from = from;
+        if (to) args.to = to;
+      }
+      if (type === 'pick') {
+        const vals = $('v-' + col.name + '-values')?.value?.trim();
+        const wts = $('v-' + col.name + '-weights')?.value?.trim();
+        if (vals) {
+          args.values = vals.split(',').map(s => s.trim()).map(s => {
+            // cast numeric-looking strings to numbers
+            return /^-?\d+(\.\d+)?$/.test(s) ? Number(s) : s;
+          });
+        }
+        if (wts) {
+          args.weights = wts.split(',').map(s => Number(s.trim()));
+        }
+      }
+      spec[col.name] = { gen: type, ...args };
+    }
+
+    const payload = {
+      table, rowCount, batchSize, concurrency, dialect, strategy, spec
+    };
+
+    try {
+      const res = await fetch('/data/insert', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      if (res.ok) {
+        $('insertResult').textContent = `Done: inserted=${data.inserted}, elapsedMs=${data.elapsedMs}, rowsPerSec=${Math.round(data.rowsPerSec)}`;
+        $('insertResult').className = 'ok';
+      } else {
+        $('insertResult').textContent = JSON.stringify(data, null, 2);
+        $('insertResult').className = 'err';
+      }
+    } catch (e) {
+      $('insertResult').textContent = String(e);
+      $('insertResult').className = 'err';
+    }
+  });
+
+  // ----- Event Bindings -----
+  $('tableSelect').addEventListener('change', onSelectTable);
+  $('btnReloadTables').addEventListener('click', loadTables);
+  $('btnAutoMap').addEventListener('click', () => {
+    const t = $('tableSelect').value;
+    if (t) autoMapGenerators(t);
+  });
+
+  // initial load
+  loadTables().catch(console.error);
+</script>
+</body>
+</html>
