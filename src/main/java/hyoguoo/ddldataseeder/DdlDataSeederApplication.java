@@ -1,12 +1,12 @@
-package hyoguoo.ddl_data_generator;
+package hyoguoo.ddldataseeder;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 
 @SpringBootApplication
-public class DdlDataGeneratorApplication {
+public class DdlDataSeederApplication {
 
     public static void main(String[] args) {
-        SpringApplication.run(DdlDataGeneratorApplication.class, args);
+        SpringApplication.run(DdlDataSeederApplication.class, args);
     }
 }

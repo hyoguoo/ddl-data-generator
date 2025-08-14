@@ -1,4 +1,4 @@
-package hyoguoo.ddl_data_generator.executor;
+package hyoguoo.ddldataseeder.executor;
 
 import org.springframework.stereotype.Controller;
 import org.springframework.web.bind.annotation.GetMapping;

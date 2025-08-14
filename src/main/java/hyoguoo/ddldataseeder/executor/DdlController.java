@@ -1,4 +1,4 @@
-package hyoguoo.ddl_data_generator.executor;
+package hyoguoo.ddldataseeder.executor;
 
 import java.sql.Connection;
 import java.sql.SQLException;
