@@ -212,13 +212,10 @@
     <label>Concurrency</label>
     <input id="concurrency" type="number" value="1" min="1"/>
 
-    <label>DB / Strategy</label>
+    <label>Database</label>
     <div class="inline">
       <select id="dialect">
         <option value="MYSQL" selected>MYSQL</option>
-      </select>
-      <select id="strategy">
-        <option value="BATCH" selected>BATCH</option>
       </select>
     </div>
 
@@ -635,7 +632,6 @@
     const batchSize = parseInt($('batchSize').value || '0', 10);
     const concurrency = parseInt($('concurrency').value || '0', 10);
     const dialect = $('dialect').value;
-    const strategy = $('strategy').value;
     const useChunks = $('useClientChunking')?.checked ?? false;
     const clientChunkSize = parseInt($('clientChunkSize')?.value || '0', 10);
 
@@ -692,7 +688,7 @@
       spec[col.name] = { gen: type, ...args };
     }
 
-    const common = { table, batchSize, concurrency, dialect, strategy, spec };
+    const common = { table, batchSize, concurrency, dialect, spec };
     const btn = $('btnInsert');
     btn.disabled = true;
 
