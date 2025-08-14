@@ -129,6 +129,27 @@
 
     /* Theme toggle button position */
     .theme-toggle-wrap { position: fixed; top: 12px; right: 20px; z-index: 1000; }
+    /* Generator item separation */
+    #generators .gen-item {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 12px;
+      margin: 10px 0;
+      background: var(--panel);
+    }
+    /* Visual divider between column meta (left) and generator config (right) */
+    #generators .gen-item .col:last-child {
+      border-left: 1px dashed var(--border);
+      padding-left: 16px;
+    }
+    @media (max-width: 900px) {
+      #generators .gen-item .col:last-child {
+        border-left: none;
+        padding-left: 0;
+        border-top: 1px dashed var(--border);
+        padding-top: 10px;
+      }
+    }
   </style>
 </head>
 <body>
@@ -505,7 +526,7 @@
     const cols = (columnsCache.get(table) || []);
 
     cols.forEach(col => {
-      const row = el('div', { class: 'row' }, [
+      const row = el('div', { class: 'row gen-item' }, [
         el('div', { class: 'col' }, [
           el('div', { class: 'chip' }, col.name),
           el('div', { class: 'muted' }, `${col.typeName}${col.primaryKey ? ' · PK' : ''}${col.autoIncrement ? ' · AUTO' : ''}`)
