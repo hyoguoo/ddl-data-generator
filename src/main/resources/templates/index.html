@@ -24,6 +24,10 @@
     .kvs { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
     .inline { display: inline-flex; gap: 8px; align-items: center; }
     .chip { display:inline-block; padding:2px 6px; border-radius:12px; background:#eff3ff; border:1px solid #d6defa; font-size:12px; }
+
+    /* Progress UI */
+    progress { width: 100%; height: 16px; }
+    #progressText { margin-top: 4px; display: block; }
   </style>
 </head>
 <body>
@@ -93,10 +97,25 @@
       </select>
     </div>
 
+    <label>Progress (client-side)</label>
+    <div class="inline">
+      <input type="checkbox" id="useClientChunking" checked/>
+      <span class="muted">Split into multiple requests to show progress</span>
+      <input id="clientChunkSize" type="number" value="10000" min="1" style="width:140px"/>
+      <span class="muted">rows per request</span>
+    </div>
+
+    <label>Progress</label>
+    <div>
+      <progress id="progressBar" value="0" max="100"></progress>
+      <span id="progressText" class="muted"></span>
+    </div>
+
     <label>Column presets</label>
     <div class="inline">
       <button class="btn secondary" id="btnAutoMap">Apply auto mapping</button>
-      <span class="muted">Map generators based on column name/type (name/email/lorem/int/decimal/datetime/const/AUTO).</span>
+      <span
+          class="muted">Map generators based on column name/type (name/email/lorem/int/decimal/datetime/const/AUTO).</span>
     </div>
     <label>Per-column generator rules</label>
     <div id="generators"></div>
@@ -207,6 +226,29 @@
       ]);
       tbody.appendChild(tr);
     });
+  }
+
+  // ----- Progress helpers (client-side chunking) -----
+  function resetProgress(total) {
+    const bar = $('progressBar');
+    if (!bar) return;
+    bar.max = total > 0 ? total : 100;
+    bar.value = 0;
+    const t = $('progressText');
+    if (t) t.textContent = 'Starting...';
+  }
+  function updateProgress(done, total, startedMs) {
+    const bar = $('progressBar');
+    if (!bar) return;
+    bar.value = Math.min(done, total);
+    const elapsed = (Date.now() - startedMs) / 1000;
+    const rps = done > 0 && elapsed > 0 ? Math.round(done / elapsed) : 0;
+    const pct = total > 0 ? Math.floor((done * 100) / total) : 0;
+    const t = $('progressText');
+    if (t) t.textContent = `${done}/${total} (${pct}%) • ${rps} rows/s • ${elapsed.toFixed(1)}s`;
+  }
+  function finishProgress(total, startedMs) {
+    updateProgress(total, total, startedMs);
   }
 
   // ----- 3) Column-specific Generator UI -----
@@ -426,17 +468,19 @@
   // ----- 4) Run bulk insert -----
   $('btnInsert').addEventListener('click', async () => {
     const table = $('insTable').value.trim() || $('tableSelect').value;
-    const rowCount = parseInt($('rowCount').value || '0', 10);
+    const total = parseInt($('rowCount').value || '0', 10);
     const batchSize = parseInt($('batchSize').value || '0', 10);
     const concurrency = parseInt($('concurrency').value || '0', 10);
     const dialect = $('dialect').value;
     const strategy = $('strategy').value;
+    const useChunks = $('useClientChunking')?.checked ?? false;
+    const clientChunkSize = parseInt($('clientChunkSize')?.value || '0', 10);
 
     $('insertResult').textContent = '';
     $('insertResult').className = 'muted';
 
     if (!table) { $('insertResult').textContent = 'Please provide a table name.'; return; }
-    if (rowCount <= 0) { $('insertResult').textContent = 'rowCount must be ≥ 1.'; return; }
+    if (total <= 0) { $('insertResult').textContent = 'rowCount must be ≥ 1.'; return; }
 
     // build spec payload
     const cols = columnsCache.get($('tableSelect').value) || [];
@@ -485,27 +529,50 @@
       spec[col.name] = { gen: type, ...args };
     }
 
-    const payload = {
-      table, rowCount, batchSize, concurrency, dialect, strategy, spec
-    };
+    const common = { table, batchSize, concurrency, dialect, strategy, spec };
+    const btn = $('btnInsert');
+    btn.disabled = true;
 
-    try {
+    const started = Date.now();
+    resetProgress(total);
+
+    async function postOnce(n) {
+      const payload = { ...common, rowCount: n };
       const res = await fetch('/data/insert', {
         method: 'POST',
         headers: {'Content-Type':'application/json'},
         body: JSON.stringify(payload)
       });
       const data = await res.json();
-      if (res.ok) {
-        $('insertResult').textContent = `Done: inserted=${data.inserted}, elapsedMs=${data.elapsedMs}, rowsPerSec=${Math.round(data.rowsPerSec)}`;
+      if (!res.ok) {
+        throw new Error(typeof data === 'string' ? data : JSON.stringify(data));
+      }
+      return data;
+    }
+
+    try {
+      if (useChunks && clientChunkSize > 0 && total > clientChunkSize) {
+        let done = 0;
+        while (done < total) {
+          const n = Math.min(clientChunkSize, total - done);
+          const data = await postOnce(n);
+          done += data.inserted ?? n;
+          updateProgress(done, total, started);
+        }
+        finishProgress(total, started);
+        $('insertResult').textContent = `Done: inserted=${total}`;
         $('insertResult').className = 'ok';
       } else {
-        $('insertResult').textContent = JSON.stringify(data, null, 2);
-        $('insertResult').className = 'err';
+        const data = await postOnce(total);
+        finishProgress(total, started);
+        $('insertResult').textContent = `Done: inserted=${data.inserted}, elapsedMs=${data.elapsedMs}, rowsPerSec=${Math.round(data.rowsPerSec)}`;
+        $('insertResult').className = 'ok';
       }
     } catch (e) {
       $('insertResult').textContent = String(e);
       $('insertResult').className = 'err';
+    } finally {
+      btn.disabled = false;
     }
   });
 
