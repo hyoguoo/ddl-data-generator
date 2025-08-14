@@ -1,12 +1,12 @@
 services:
   db:
-    image: mysql:8.0
+    image: mysql:${MYSQL_VERSION}
     command: --default-authentication-plugin=mysql_native_password --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
     environment:
-      MYSQL_ROOT_PASSWORD: root
-      MYSQL_DATABASE: playground
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
     ports:
-      - "3306:3306"
+      - ${MYSQL_HOST_PORT}:${MYSQL_CONTAINER_PORT}
     volumes:
       - db_data:/var/lib/mysql
     healthcheck:
@@ -20,12 +20,12 @@ services:
       context: .
       dockerfile: Dockerfile
     environment:
-      SPRING_DATASOURCE_URL: jdbc:mysql://db:3306/playground?allowPublicKeyRetrieval=true&useSSL=false&useUnicode=true&characterEncoding=utf8&rewriteBatchedStatements=true
+      SPRING_DATASOURCE_URL: jdbc:mysql://db:${MYSQL_HOST_PORT}/${MYSQL_DATABASE}?allowPublicKeyRetrieval=true&useSSL=false&useUnicode=true&characterEncoding=utf8&rewriteBatchedStatements=true
       SPRING_DATASOURCE_USERNAME: root
-      SPRING_DATASOURCE_PASSWORD: root
+      SPRING_DATASOURCE_PASSWORD: ${MYSQL_ROOT_PASSWORD}
       SPRING_OUTPUT_ANSI_ENABLED: "ALWAYS"
     ports:
-      - "8080:8080"
+      - ${APP_HOST_PORT}:${APP_CONTAINER_PORT}
     depends_on:
       db:
         condition: service_healthy

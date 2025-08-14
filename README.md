@@ -7,7 +7,7 @@
 This project provides a user interface to execute DDL statements, detect created tables.  
 And perform bulk data insertion for testing high-volume queries.
 
-<img width="80%" alt="image" src="https://github.com/user-attachments/assets/e143721b-9075-4dfa-96db-8501813c15d9">
+<img width="100%" alt="image" src="https://github.com/user-attachments/assets/e143721b-9075-4dfa-96db-8501813c15d9">
 
 ## Features
 
@@ -25,6 +25,13 @@ And perform bulk data insertion for testing high-volume queries.
    ```bash
    docker-compose up --build
    ```
+    - **Default MySQL Configuration**
+        - Version: `8.0`
+        - Port: `3306`
+        - Database: `playground`
+        - Username: `root`
+        - Password: `root`
+        - You can change these credentials in the `.env` file.
 4. Access the application at: http://localhost:8080
 
 ## Usage
