@@ -5,32 +5,136 @@
   <title>DDL + Schema + Bulk Insert UI</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <style>
-    body { font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, "Noto Sans KR", Arial; margin: 20px; }
+    :root{
+      --bg:#ffffff;
+      --fg:#111111;
+      --muted:#666666;
+      --border:#dddddd;
+      --panel:#f5f5f5;
+
+      --btn-bg:#111111;
+      --btn-fg:#ffffff;
+      --btn-border:#333333;
+
+      --btn2-bg:#ffffff;
+      --btn2-fg:#111111;
+      --btn2-border:#333333;
+
+      --chip-bg:#eff3ff;
+      --chip-border:#d6defa;
+
+      --ok:#0a7a0a;
+      --err:#ff6b6b;
+    }
+    @media (prefers-color-scheme: dark){
+      :root{
+        --bg:#0f1115;
+        --fg:#e6e6e6;
+        --muted:#9aa4b2;
+        --border:#2a2f3a;
+        --panel:#171a21;
+
+        --btn-bg:#e6e6e6;
+        --btn-fg:#0f1115;
+        --btn-border:#8a8f98;
+
+        --btn2-bg:#171a21;
+        --btn2-fg:#e6e6e6;
+        --btn2-border:#3a3f4a;
+
+        --chip-bg:#1f2430;
+        --chip-border:#364152;
+
+        --ok:#3ddc97;
+        --err:#ff6b6b;
+      }
+    }
+    /* Explicit dark theme override (via button toggle) */
+    body.theme-dark{
+      --bg:#0f1115;
+      --fg:#e6e6e6;
+      --muted:#9aa4b2;
+      --border:#2a2f3a;
+      --panel:#171a21;
+
+      --btn-bg:#e6e6e6;
+      --btn-fg:#0f1115;
+      --btn-border:#8a8f98;
+
+      --btn2-bg:#171a21;
+      --btn2-fg:#e6e6e6;
+      --btn2-border:#3a3f4a;
+
+      --chip-bg:#1f2430;
+      --chip-border:#364152;
+
+      --ok:#3ddc97;
+      --err:#ff6b6b;
+    }
+
+    /* Explicit light theme override (via button toggle) */
+    body.theme-light{
+      --bg:#ffffff;
+      --fg:#111111;
+      --muted:#666666;
+      --border:#dddddd;
+      --panel:#f5f5f5;
+
+      --btn-bg:#111111;
+      --btn-fg:#ffffff;
+      --btn-border:#333333;
+
+      --btn2-bg:#ffffff;
+      --btn2-fg:#111111;
+      --btn2-border:#333333;
+
+      --chip-bg:#eff3ff;
+      --chip-border:#d6defa;
+
+      --ok:#0a7a0a;
+      --err:#ff6b6b;
+    }
+
+    body {
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, "Noto Sans KR", Arial;
+      margin: 20px;
+      background: var(--bg);
+      color: var(--fg);
+    }
     h2 { margin-top: 28px; }
-    fieldset { margin: 16px 0; padding: 12px; }
-    label { display: inline-block; min-width: 140px; }
-    input[type="text"], input[type="number"], select, textarea { padding: 6px; width: 100%; max-width: 640px; }
-    table { border-collapse: collapse; margin-top: 8px; width: 100%; }
-    th, td { border: 1px solid #ddd; padding: 6px 8px; font-size: 14px; }
-    th { background: #f5f5f5; }
+    fieldset { margin: 16px 0; padding: 12px; background: var(--panel); border: 1px solid var(--border); }
+    label { display: inline-block; min-width: 140px; color: var(--fg); }
+    input[type="text"], input[type="number"], select, textarea {
+      padding: 6px; width: 100%; max-width: 640px;
+      background: var(--bg); color: var(--fg); border: 1px solid var(--border);
+    }
+    table { border-collapse: collapse; margin-top: 8px; width: 100%; background: var(--bg); color: var(--fg); }
+    th, td { border: 1px solid var(--border); padding: 6px 8px; font-size: 14px; }
+    th { background: var(--panel); }
     .row { display: flex; gap: 16px; flex-wrap: wrap; }
-    .col { flex: 1 1 360px; }
-    .muted { color: #666; font-size: 12px; }
-    .btn { padding: 8px 14px; border: 1px solid #333; background: #111; color: #fff; cursor: pointer; border-radius: 6px; }
-    .btn.secondary { background: #fff; color: #111; }
-    .ok { color: #0a7a0a; }
-    .err { color: #a61616; white-space: pre-wrap; }
+    .col { flex: 1 1 360px; min-width: 0; }
+    .muted { color: var(--muted); font-size: 12px; }
+    .btn { padding: 8px 14px; border: 1px solid var(--btn-border); background: var(--btn-bg); color: var(--btn-fg); cursor: pointer; border-radius: 6px; }
+    .btn.secondary { background: var(--btn2-bg); color: var(--btn2-fg); border: 1px solid var(--btn2-border); }
+    .ok { color: var(--ok); }
+    .err { color: var(--err); white-space: pre-wrap; }
     .grid { display: grid; grid-template-columns: 220px 1fr; gap: 8px 12px; align-items: center; }
     .kvs { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
     .inline { display: inline-flex; gap: 8px; align-items: center; }
-    .chip { display:inline-block; padding:2px 6px; border-radius:12px; background:#eff3ff; border:1px solid #d6defa; font-size:12px; }
+    .chip { display:inline-block; padding:2px 6px; border-radius:12px; background: var(--chip-bg); border:1px solid var(--chip-border); font-size:12px; }
 
     /* Progress UI */
-    progress { width: 100%; height: 16px; }
+    progress { width: 100%; height: 16px; background: var(--panel); accent-color: var(--ok); }
     #progressText { margin-top: 4px; display: block; }
+
+    /* Theme toggle button position */
+    .theme-toggle-wrap { position: fixed; top: 12px; right: 20px; z-index: 1000; }
   </style>
 </head>
 <body>
+<div class="theme-toggle-wrap">
+  <button id="themeToggle" class="btn secondary">Dark mode</button>
+</div>
 
 <h1>DDL, Schema, and Bulk Insert</h1>
 <h2>1) Execute DDL</h2>
@@ -128,6 +232,44 @@
   </div>
 </fieldset>
 <script>
+  // ----- Theme toggle (light/dark) -----
+  (function(){
+    const STORAGE_KEY = 'theme';
+    const btnId = 'themeToggle';
+
+    function setButtonLabel() {
+      const btn = document.getElementById(btnId);
+      if (!btn) return;
+      const dark = document.body.classList.contains('theme-dark');
+      btn.textContent = dark ? 'Light mode' : 'Dark mode';
+    }
+
+    function applyTheme(mode) {
+      document.body.classList.remove('theme-dark', 'theme-light');
+      if (mode === 'dark') {
+        document.body.classList.add('theme-dark');
+      } else if (mode === 'light') {
+        document.body.classList.add('theme-light');
+      }
+      setButtonLabel();
+    }
+
+    // Initialize from localStorage or system preference (without forcing if not saved)
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (saved === 'dark' || saved === 'light') {
+      applyTheme(saved);
+    } else {
+      setButtonLabel(); // Keep system preference; just sync button label
+    }
+
+    document.addEventListener('click', (e) => {
+      if (e.target && e.target.id === btnId) {
+        const next = document.body.classList.contains('theme-dark') ? 'light' : 'dark';
+        applyTheme(next);
+        localStorage.setItem(STORAGE_KEY, next);
+      }
+    });
+  })();
   // ----- Util -----
   const $ = (id) => document.getElementById(id);
   const columnsCache = new Map(); // table -> columns[]
